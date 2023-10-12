@@ -3,6 +3,7 @@ struct Camera {
   struct {
     int in,out;
   } counts;
+  int should_emit;
 } cameras [] =  {
   // Using gpio ids
  [0] = { .out = 0, .in = 3, .gate = 6},
@@ -10,27 +11,27 @@ struct Camera {
  [2] = { .out = 19, .in = 22, .gate = 28},
 };
 
+
+#define ERR(msg) Serial.println("ERR: " # msg)
+#define countof(e) (sizeof(e)/sizeof(*e))
+
 //
 //    COMMANDS
 //
 
-
-// commands
 int emit(int camera_id) {
-  Serial.print("EMIT ");
-  Serial.println(camera_id,DEC);
+  cameras[camera_id].should_emit = 1;
+  Serial.println("emit "+String(camera_id,DEC));
   return 0;
 }
 
 int query_out(int camera_id) {
-  Serial.print("query_out ");
-  Serial.println(camera_id,DEC);
+  Serial.println("qout "+String(camera_id,DEC)+" "+String(cameras[camera_id].counts.out));
   return 0;
 }
 
 int query_in(int camera_id) {
-  Serial.print("query_in ");
-  Serial.println(camera_id,DEC);
+  Serial.println("qin "+String(camera_id,DEC)+" "+String(cameras[camera_id].counts.in));
   return 0;
 }
 
@@ -65,6 +66,7 @@ struct ParseResult number(int* out, struct ParseResult input) {
   
   if(cur==0) {
     // no digits
+    ERR("Expected digits");
     input.result=ERR;
     return input;
   } else {
@@ -89,6 +91,7 @@ struct ParseResult alphas(String* out, struct ParseResult input) {
   
   if(cur==0) {
     // nothing consumed
+    ERR("Expected alphas");
     input.result=ERR;
     return input;
   } else {
@@ -111,8 +114,6 @@ struct ParseResult whitespace(struct ParseResult input) {
   return input;
 }
 
-
-
 // Syntax: ([a-z]+)\w(\d+), output corresponding Command in `out`
 struct ParseResult command(struct Command * out, struct  ParseResult input) {
   static const struct {String name; int (*cmd)(int camera_id);} commands[] = {
@@ -129,21 +130,23 @@ struct ParseResult command(struct Command * out, struct  ParseResult input) {
   String cmd;
   int camera_id=-1;
   ParseResult result = number(&camera_id,whitespace(alphas(&cmd,input)));
-  if(result.result==OK) 
-  { 
-    for(const auto c: commands) {
-      if(cmd == c.name) {
-        *out = (struct Command) {
-          .cmd = c.cmd,
-          .arg = camera_id
-        };
-        return result;
-      }
-    }
-    // no command recognized
-    input.result==ERR;
+  if(result.result!=OK)  {
+    ERR("Command not well-formed");
+    return result;
   }
 
+  for(const auto c: commands) {
+    if(cmd == c.name) {
+      *out = (struct Command) {
+        .cmd = c.cmd,
+        .arg = camera_id
+      };
+      return result;
+    }
+  }
+  // no command recognized
+  ERR("Command not recognized");
+  input.result=ERR;
   return input;
 }
 
@@ -155,7 +158,7 @@ struct ParseResult line(struct ParseResult *out, struct ParseResult input) {
   }
   int i = input.rest.indexOf('\n');
   if(i<0) {
-    input.result==ERR;
+    input.result=ERR;
     return input;
   } 
 
@@ -200,20 +203,40 @@ void eval(String& inbox) {
     struct Command cmd;    
     p = line(&inner,p);
     inner = command(&cmd,inner);
-    if(inner.result==OK) {
+    if(inner.result==OK) {      
       // Execute 
+      if(cmd.arg<countof(cameras))
       cmd.cmd(cmd.arg);
     }
   } while(p.result==OK);
   inbox = p.rest;
 }
 
+void update() {
+  
+  for(auto& c: cameras) {
+    if(c.should_emit && digitalRead(c.gate)) {
+      digitalWrite(c.out,1);
+      c.should_emit=0;
+      ++c.counts.out;
+    } else {
+      digitalWrite(c.out,0);
+    }
 
+    if(digitalRead(c.in))
+      ++c.counts.in;
+  }
+}
 
 void loop() {
   arduino::String inbox;
+  int last_len=0;
   while(1) {
-    read(inbox);
-    eval(inbox);
+    read(inbox); // blocks for Serial.setTimeout(ms)
+    if(inbox.length()!=last_len) {
+      eval(inbox);
+      last_len = inbox.length();
+    }
+    update();
   }
 }
