@@ -38,12 +38,43 @@ enum Kind {
   QIN,
 };
 
+enum Result {
+  OK,
+  ERR
+};
+
 struct Command {
   enum Kind kind;
   int camera_id;
+};
+
+struct MaybeCommand {
+  enum Result result;
+  struct Command command;
+};
+
+struct MaybeCommand parse(const arduino::String& line) {
+  struct {String name; Kind kind;} commands[] = {
+    {"emit", EMIT},
+    {"qout", QOUT},
+    {"qin", QIN},
+  };
+
+  for(const auto& cmd: commands) {
+    if(String.startsWith(cmd.name))
+  }
 }
 
 void eval() {
+  // consume input dividing it into "/n" lines, until the input buffer is empty
+  {
+    int cur=0;
+    int eol=0;
+    while( (eol=input.indexOf('\n'))>=0) {
+      const auto line = input.substring(cur,eol);
+      struct comm
+    }
+  }
 
 }
 
